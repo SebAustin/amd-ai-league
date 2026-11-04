@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv -p 3.12 .venv
+          uv pip install -p .venv -e ".[dev]"
+      - name: Lint
+        run: .venv/bin/ruff check src tests eval
+      - name: Unit tests (coverage gate 80%)
+        run: .venv/bin/pytest --cov --cov-fail-under=80
+      - name: Contract smoke test (real CLI, saved-site fixture, no GPU)
+        env:
+          M4_DISABLE_LLM: "1"
+          M4_DISABLE_BROWSER: "1"
+          PYTHONPATH: src
+        run: |
+          .venv/bin/python matches/m4/app.py --id smoke -q "What is the support email address?" \
+            --corpus tests/m4/fixtures/site --output-dir out
+          .venv/bin/python - <<'EOF'
+          import json
+          d = json.load(open("out/smoke_output.json"))
+          assert d["answer"] == "support@acme-tools.example", d
+          assert d["citations"] == ["about/contact.html"], d
+          print("contract ok:", d)
+          EOF
+
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: matches/m4/Dockerfile
+          failure-threshold: error

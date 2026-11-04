@@ -1,0 +1,30 @@
+{"id": "books-price-attic", "url": "https://books.toscrape.com/", "question": "What is the price of the book A Light in the Attic?", "expected": ["£51.77"]}
+{"id": "books-price-sapiens", "url": "https://books.toscrape.com/", "question": "How much does Sapiens: A Brief History of Humankind cost?", "expected": ["£54.23"]}
+{"id": "books-price-requiem", "url": "https://books.toscrape.com/", "question": "What is the price of The Requiem Red?", "expected": ["£22.65"]}
+{"id": "books-price-velvet", "url": "https://books.toscrape.com/", "question": "How much is Tipping the Velvet?", "expected": ["£53.74"]}
+{"id": "books-upc-attic", "url": "https://books.toscrape.com/", "question": "What is the UPC of A Light in the Attic?", "expected": ["a897fe39b1053632"]}
+{"id": "books-upc-sapiens", "url": "https://books.toscrape.com/", "question": "What is the UPC code for Sapiens: A Brief History of Humankind?", "expected": ["4165285e1663650f"]}
+{"id": "books-stock-attic", "url": "https://books.toscrape.com/", "question": "How many copies of A Light in the Attic are available in stock?", "expected": ["22", "22 available"]}
+{"id": "books-stock-requiem", "url": "https://books.toscrape.com/", "question": "How many copies of The Requiem Red are in stock?", "expected": ["19", "19 available"]}
+{"id": "books-stock-velvet", "url": "https://books.toscrape.com/", "question": "How many units of Tipping the Velvet are available?", "expected": ["20", "20 available"]}
+{"id": "books-rating-sapiens", "url": "https://books.toscrape.com/", "question": "What star rating does Sapiens: A Brief History of Humankind have?", "expected": ["Five", "5", "5 stars", "five stars"]}
+{"id": "books-rating-requiem", "url": "https://books.toscrape.com/", "question": "How many stars is The Requiem Red rated?", "expected": ["One", "1", "1 star", "one star"]}
+{"id": "books-rating-attic", "url": "https://books.toscrape.com/", "question": "What is the star rating of A Light in the Attic?", "expected": ["Three", "3", "3 stars", "three stars"]}
+{"id": "books-reviews-sapiens", "url": "https://books.toscrape.com/", "question": "How many reviews does Sapiens: A Brief History of Humankind have?", "expected": ["0"]}
+{"id": "books-travel-first", "url": "https://books.toscrape.com/", "question": "Which book is listed first in the Travel category?", "expected": ["It's Only the Himalayas"]}
+{"id": "books-himalayas-price", "url": "https://books.toscrape.com/", "question": "What is the price of It's Only the Himalayas in the Travel category?", "expected": ["£45.17"]}
+{"id": "quotes-einstein-born", "url": "https://quotes.toscrape.com/", "question": "When was Albert Einstein born?", "expected": ["March 14, 1879"]}
+{"id": "quotes-einstein-place", "url": "https://quotes.toscrape.com/", "question": "Where was Albert Einstein born?", "expected": ["Ulm, Germany", "in Ulm, Germany"]}
+{"id": "quotes-austen-born", "url": "https://quotes.toscrape.com/", "question": "What is Jane Austen's date of birth?", "expected": ["December 16, 1775"]}
+{"id": "quotes-austen-place", "url": "https://quotes.toscrape.com/", "question": "Where was Jane Austen born?", "expected": ["Steventon Rectory, Hampshire, The United Kingdom", "in Steventon Rectory, Hampshire, The United Kingdom", "Steventon Rectory"]}
+{"id": "quotes-rowling-born", "url": "https://quotes.toscrape.com/", "question": "On what date was J.K. Rowling born?", "expected": ["July 31, 1965"]}
+{"id": "quotes-monroe-born", "url": "https://quotes.toscrape.com/", "question": "When was Marilyn Monroe born?", "expected": ["June 01, 1926", "June 1, 1926"]}
+{"id": "quotes-edison-place", "url": "https://quotes.toscrape.com/", "question": "Where was Thomas A. Edison born?", "expected": ["Milan, Ohio, The United States", "in Milan, Ohio, The United States", "Milan, Ohio"]}
+{"id": "quotes-martin-born", "url": "https://quotes.toscrape.com/", "question": "When was Steve Martin born?", "expected": ["August 14, 1945"]}
+{"id": "quotes-love-count", "url": "https://quotes.toscrape.com/", "question": "How many quotes are shown on the first page of the love tag?", "expected": ["10"]}
+{"id": "countries-andorra-capital", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the capital of Andorra?", "expected": ["Andorra la Vella"]}
+{"id": "countries-japan-pop", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the population of Japan?", "expected": ["127288000", "127,288,000"]}
+{"id": "countries-iceland-area", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the area of Iceland in square kilometers?", "expected": ["103000.0", "103000", "103,000"]}
+{"id": "countries-brazil-capital", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the capital city of Brazil?", "expected": ["Brasília", "Brasilia"]}
+{"id": "countries-iceland-pop", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is Iceland's population?", "expected": ["308910", "308,910"]}
+{"id": "countries-andorra-area", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the area of Andorra?", "expected": ["468.0", "468", "468 km2"]}
