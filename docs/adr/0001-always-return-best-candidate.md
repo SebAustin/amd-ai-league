@@ -1,5 +1,7 @@
 # Always return the best candidate answer instead of abstaining
 
+Status: superseded by [ADR 0002](0002-abstain-below-confidence-threshold.md).
+
 The Match 4 agent returns its best candidate Answer whenever it has read at least one page, even
 at low confidence, and reports that confidence alongside it. Leading competing entries do the
 opposite ("proof or silence": return an empty answer unless verified). Under exact-match grading an

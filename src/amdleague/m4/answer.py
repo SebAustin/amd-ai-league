@@ -1,7 +1,8 @@
 """Choose the single Answer: LLM over ranked passages, then rules, then a best guess.
 
-Policy (ADR 0001): always return a candidate when we read any page — under exact-match grading an
-empty answer and a wrong answer both score zero, so abstaining can only lose points.
+Policy (ADR 0002, supersedes 0001): answer only when confident. League graders score an empty
+answer as correct on an unanswerable question and a guess as wrong, so any candidate whose
+confidence is below ``min_confidence`` is replaced by an empty answer.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import json
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from amdleague.common.deadline import Deadline
@@ -25,6 +26,12 @@ LLM_PASSAGE_CHARS = 500
 KEYWORD_WINDOW = 25
 BEST_GUESS_CHARS = 200
 GROUNDED_CONFIDENCE = 0.8
+UNGROUNDED_CONFIDENCE = 0.45  # value not found in any passage: likely made up
+MIN_CONFIDENCE = 0.5  # below this we abstain (empty answer)
+LLM_DISSENT_PENALTY = 0.25  # the model read the passages and said the answer is not there
+UNCUED_NUMBER_CONFIDENCE = 0.4  # any number matches a "how many" question: need its noun nearby
+COUNTED_NOUN_WINDOW = 40
+_COUNTED_NOUN = re.compile(r"\bhow many ([a-z]+)", re.IGNORECASE)
 _FIELD = re.compile(r"^([^:]{1,40}?):\s+(.+)$")
 FIELD_MIN_KEY_MATCH = 0.5
 # Question wording -> the label a page is likely to use. Applied to both sides after stemming.
@@ -101,7 +108,23 @@ def _parse_reply(reply: str) -> tuple[str, int] | None:
     return (value, index) if value else None
 
 
+def _is_refusal(reply: str) -> bool:
+    """The model replied with valid JSON whose answer is empty/null: "not in these passages"."""
+    decoder = json.JSONDecoder()
+    for start in (i for i, ch in enumerate(reply) if ch == "{"):
+        try:
+            data, _ = decoder.raw_decode(reply, start)
+        except json.JSONDecodeError:
+            continue
+        return isinstance(data, dict) and data.get("answer") in ("", None)
+    return False
+
+
+REFUSAL = Answer(value="", citations=(), confidence=0.0, method="llm_refusal")
+
+
 def llm_answer(question: str, passages: list[Passage], llm: LLM, deadline: Deadline) -> Answer | None:
+    """The model's Answer; ``REFUSAL`` if it says the passages lack it; None if the call failed."""
     shown = passages[:LLM_PASSAGES]
     if not shown or deadline.remaining() < 1.5:
         return None
@@ -110,7 +133,7 @@ def llm_answer(question: str, passages: list[Passage], llm: LLM, deadline: Deadl
     parsed = _parse_reply(reply) if reply else None
     if parsed is None:
         log.info("LLM gave no usable answer: %r", reply)
-        return None
+        return REFUSAL if reply and _is_refusal(reply) else None
     value, index = parsed
     wanted = normalise(value)
     grounded = [p for p in shown if wanted in normalise(p.text)]
@@ -120,7 +143,7 @@ def llm_answer(question: str, passages: list[Passage], llm: LLM, deadline: Deadl
     if grounded:
         return Answer(value, (grounded[0].url,), 0.8, "llm")
     cite = chosen or shown[0]
-    return Answer(value, (cite.url,), 0.55, "llm")
+    return Answer(value, (cite.url,), UNGROUNDED_CONFIDENCE, "llm")
 
 
 def _keyword_bonus(text_lower: str, offset: int, answer_type: AnswerType) -> float:
@@ -152,7 +175,28 @@ def rules_answer(question: str, passages: list[Passage]) -> Answer | None:
                 best = (score, value, passage.url)
     if best is None:
         return None
-    return Answer(best[1], (best[2],), min(0.75, 0.35 + best[0] / 5), "rules")
+    confidence = min(0.75, 0.35 + best[0] / 5)
+    if answer_type is AnswerType.NUMBER and not _counted_noun_near(question, passages, best):
+        confidence = min(confidence, UNCUED_NUMBER_CONFIDENCE)
+    return Answer(best[1], (best[2],), confidence, "rules")
+
+
+def _counted_noun_near(question: str, passages: list[Passage],
+                       best: tuple[float, str, str]) -> bool:
+    """For "how many pages ...", is the word "pages" written next to the chosen number?"""
+    match = _COUNTED_NOUN.search(question)
+    noun = set(tokenize(match.group(1))) if match else set()
+    if not noun:
+        return False
+    _, value, url = best
+    for passage in passages:
+        if passage.url != url:
+            continue
+        for found in re.finditer(re.escape(value), passage.text):
+            lo, hi = found.start() - COUNTED_NOUN_WINDOW, found.end() + COUNTED_NOUN_WINDOW
+            if noun & set(tokenize(passage.text[max(0, lo):hi])):
+                return True
+    return False
 
 
 def _canon(tokens: list[str]) -> set[str]:
@@ -222,14 +266,31 @@ def best_guess(passages: list[Passage]) -> Answer:
     return Answer(first_sentence[:BEST_GUESS_CHARS], (top.url,), 0.15, "best_guess")
 
 
+def _gate(answer: Answer, min_confidence: float) -> Answer:
+    if answer.value and answer.confidence >= min_confidence:
+        return answer
+    log.info("abstaining: %r at confidence %.2f (%s)", answer.value, answer.confidence,
+             answer.method)
+    return Answer("", (), answer.confidence, "abstain")
+
+
 def choose_answer(
-    question: str, passages: list[Passage], llm: LLM | None, deadline: Deadline
+    question: str,
+    passages: list[Passage],
+    llm: LLM | None,
+    deadline: Deadline,
+    min_confidence: float = MIN_CONFIDENCE,
 ) -> Answer:
     if not passages:
         return NO_ANSWER
     model = llm_answer(question, passages, llm, deadline) if llm is not None else None
-    if model is not None and model.confidence >= GROUNDED_CONFIDENCE:
-        return model  # the value appears verbatim in a passage
+    if model is not None and model.value and model.confidence >= GROUNDED_CONFIDENCE:
+        return _gate(model, min_confidence)  # the value appears verbatim in a passage
     # An ungrounded model value may be a hallucination: prefer grounded deterministic answers.
-    return (field_answer(question, passages) or rules_answer(question, passages)
-            or model or best_guess(passages))
+    model_value = model if model is not None and model.value else None
+    candidate = (field_answer(question, passages) or rules_answer(question, passages)
+                 or model_value or best_guess(passages))
+    if model is REFUSAL:
+        candidate = replace(candidate,
+                            confidence=max(0.0, candidate.confidence - LLM_DISSENT_PENALTY))
+    return _gate(candidate, min_confidence)

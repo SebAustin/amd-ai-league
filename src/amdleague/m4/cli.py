@@ -19,7 +19,7 @@ from amdleague.common.deadline import Deadline
 from amdleague.common.model_client import ModelClient
 from amdleague.common.output import write_json
 from amdleague.m4.agent import answer_request
-from amdleague.m4.answer import NO_ANSWER, Answer
+from amdleague.m4.answer import MIN_CONFIDENCE, NO_ANSWER, Answer
 from amdleague.m4.render import make_renderer
 from amdleague.m4.request import Request, RequestError, parse_args, parse_batch
 
@@ -43,6 +43,18 @@ def _budget() -> float:
         log.warning("ignoring invalid M4_TIME_BUDGET=%r", raw)
         value = DEFAULT_BUDGET_SECONDS
     return max(1.0, value - SAFETY_MARGIN_SECONDS)
+
+
+def _min_confidence() -> float:
+    """``M4_MIN_CONFIDENCE`` in [0, 1]; 0 = always answer (ADR 0001 behaviour)."""
+    raw = os.environ.get("M4_MIN_CONFIDENCE", "")
+    if not raw:
+        return MIN_CONFIDENCE
+    try:
+        return min(1.0, max(0.0, float(raw)))
+    except ValueError:
+        log.warning("ignoring invalid M4_MIN_CONFIDENCE=%r", raw)
+        return MIN_CONFIDENCE
 
 
 def build_payload(req_id: str, question: str, answer: Answer, req: Request | None = None,
@@ -91,10 +103,11 @@ class Sink:
 
 
 def run_one(req: Request, sink: Sink, llm: ModelClient | None, renderer: Any,
-            deadline: Deadline) -> None:
+            deadline: Deadline, min_confidence: float = MIN_CONFIDENCE) -> None:
     sink.emit(build_payload(req.id, req.question, NO_ANSWER, req))  # placeholder first
     try:
-        answer = answer_request(req, llm, deadline, renderer=renderer)
+        answer = answer_request(req, llm, deadline, renderer=renderer,
+                                min_confidence=min_confidence)
         payload = build_payload(req.id, req.question, answer, req)
     except Exception as exc:
         log.exception("request %s failed", req.id)
@@ -117,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         sink.emit(build_payload(exc.request_id or "invalid", "", NO_ANSWER, error=str(exc)))
         return 2
     budget = _budget()
+    min_confidence = _min_confidence()
     llm = None if _env_flag("M4_DISABLE_LLM") else ModelClient()
     renderer = None if _env_flag("M4_DISABLE_BROWSER") else make_renderer()
     first = True
@@ -129,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             # The first request also pays for interpreter start-up; later ones get a fresh budget.
             deadline = Deadline(budget, start=started) if first else Deadline(budget)
             first = False
-            run_one(item, sink, llm, renderer, deadline)
+            run_one(item, sink, llm, renderer, deadline, min_confidence)
     finally:
         if renderer is not None:
             renderer.close()

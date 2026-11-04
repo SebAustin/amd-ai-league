@@ -28,3 +28,11 @@
 {"id": "countries-brazil-capital", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the capital city of Brazil?", "expected": ["Brasília", "Brasilia"]}
 {"id": "countries-iceland-pop", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is Iceland's population?", "expected": ["308910", "308,910"]}
 {"id": "countries-andorra-area", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the area of Andorra?", "expected": ["468.0", "468", "468 km2"]}
+{"id": "none-books-author-attic", "url": "https://books.toscrape.com/", "question": "Who is the author of A Light in the Attic?", "expected": []}
+{"id": "none-books-publisher-sapiens", "url": "https://books.toscrape.com/", "question": "Which company published Sapiens: A Brief History of Humankind?", "expected": []}
+{"id": "none-books-isbn-requiem", "url": "https://books.toscrape.com/", "question": "What is the ISBN-13 of The Requiem Red?", "expected": []}
+{"id": "none-quotes-einstein-phone", "url": "https://quotes.toscrape.com/", "question": "What is Albert Einstein's phone number?", "expected": []}
+{"id": "none-quotes-site-founder", "url": "https://quotes.toscrape.com/", "question": "In what year was the company behind this quotes site founded?", "expected": []}
+{"id": "none-countries-gdp-andorra", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the GDP of Andorra in US dollars?", "expected": []}
+{"id": "none-countries-anthem-france", "url": "https://www.scrapethissite.com/pages/simple/", "question": "What is the name of the national anthem of France?", "expected": []}
+{"id": "none-books-pages-velvet", "url": "https://books.toscrape.com/", "question": "How many pages does Tipping the Velvet have?", "expected": []}

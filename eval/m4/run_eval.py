@@ -4,6 +4,9 @@ Usage:
     python eval/m4/run_eval.py                 # rules only (no GPU)
     python eval/m4/run_eval.py --llm           # use the resident model server
     python eval/m4/run_eval.py --only quotes   # ids containing "quotes"
+
+Grading follows the League: answers are compared after uppercasing and removing whitespace and
+``- . · _``; a case with ``"expected": []`` is unanswerable and only an empty answer scores.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from pathlib import Path
 from amdleague.common.deadline import Deadline
 from amdleague.common.model_client import ModelClient
 from amdleague.m4.agent import answer_request
+from amdleague.m4.answer import MIN_CONFIDENCE
 from amdleague.m4.request import make_request
 
 HERE = Path(__file__).parent
@@ -31,18 +35,30 @@ def norm(text: str) -> str:
     return text.strip(" .,:;\"'")
 
 
+_LEAGUE_STRIP = re.compile(r"[\s\-.·_]+")
+
+
+def league_norm(text: str) -> str:
+    """The League graders' normalisation: uppercase, drop whitespace and - . · _"""
+    return _LEAGUE_STRIP.sub("", text.upper())
+
+
 def grade(answer: str, expected: list[str]) -> tuple[bool, bool]:
-    got = norm(answer)
-    exact = any(got == norm(e) for e in expected)
-    contains = bool(got) and any(norm(e) in got or got in norm(e) for e in expected)
+    """(correct, contains). ``expected == []`` marks an unanswerable question: only "" is right."""
+    if not expected:
+        return answer.strip() == "", answer.strip() == ""
+    got = league_norm(answer)
+    exact = bool(got) and any(got == league_norm(e) for e in expected)
+    loose = norm(answer)
+    contains = bool(loose) and any(norm(e) in loose or loose in norm(e) for e in expected)
     return exact, contains
 
 
-def run_case(case: dict, llm: ModelClient | None, budget: float) -> dict:
+def run_case(case: dict, llm: ModelClient | None, budget: float, min_conf: float) -> dict:
     req = make_request(case["question"], case.get("url"), case.get("corpus"), case["id"],
                        base_dir=HERE)
     start = time.monotonic()
-    ans = answer_request(req, llm, Deadline(budget))
+    ans = answer_request(req, llm, Deadline(budget), min_confidence=min_conf)
     exact, contains = grade(ans.value, case["expected"])
     return {"id": case["id"], "answer": ans.value, "expected": case["expected"],
             "citations": list(ans.citations), "method": ans.method,
@@ -56,6 +72,7 @@ def main() -> int:
     ap.add_argument("--only", default="")
     ap.add_argument("--budget", type=float, default=25.0)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--min-confidence", type=float, default=MIN_CONFIDENCE)
     args = ap.parse_args()
     cases = [json.loads(line) for line in (HERE / "requests.jsonl").read_text().splitlines()
              if line.strip()]
@@ -63,16 +80,23 @@ def main() -> int:
     llm = ModelClient() if args.llm else None
     workers = 1 if args.llm else args.workers  # one GPU server: keep calls sequential
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda c: run_case(c, llm, args.budget), cases))
+        results = list(pool.map(lambda c: run_case(c, llm, args.budget, args.min_confidence), cases))
     for r in results:
         mark = "OK " if r["exact"] else ("~  " if r["contains"] else "XX ")
-        print(f"{mark}{r['id']:<28} {r['answer'][:50]!r:<54} want {r['expected'][0]!r} "
+        want = r["expected"][0] if r["expected"] else "<empty>"
+        print(f"{mark}{r['id']:<28} {r['answer'][:50]!r:<54} want {want!r} "
               f"[{r['method']}, {r['seconds']}s]")
     n = len(results) or 1
     exact = sum(r["exact"] for r in results)
     contains = sum(r["contains"] for r in results)
-    print(f"\nexact {exact}/{len(results)} ({exact / n:.0%})  contains {contains}/{len(results)}  "
+    answerable = [r for r in results if r["expected"]]
+    unanswerable = [r for r in results if not r["expected"]]
+    abstained = sum(1 for r in answerable if not r["answer"])
+    print(f"\nscore {exact}/{len(results)} ({exact / n:.0%})  contains {contains}/{len(results)}  "
           f"max {max((r['seconds'] for r in results), default=0)}s")
+    print(f"answerable {sum(r['exact'] for r in answerable)}/{len(answerable)} "
+          f"(abstained on {abstained})  unanswerable "
+          f"{sum(r['exact'] for r in unanswerable)}/{len(unanswerable)} correctly empty")
     out = HERE / "results"
     out.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")

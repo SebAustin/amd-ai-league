@@ -53,13 +53,6 @@ def test_bad_llm_reply_falls_back_to_rules(site_dir):
     assert ans.method == "rules"
 
 
-def test_always_returns_some_answer(site_dir):
-    req = Request(id="t", question="Who founded Acme Tools?", url=None, corpus=site_dir)
-    ans = answer_request(req, llm=None, deadline=Deadline(10))
-    assert ans.value  # best guess, never empty when pages exist
-    assert ans.confidence < 0.5
-
-
 def test_cli_writes_output_json(site_dir, tmp_path, monkeypatch):
     monkeypatch.setenv("M4_DISABLE_LLM", "1")
     code = main(["--id", "q1", "-q", "What is the support email address?",

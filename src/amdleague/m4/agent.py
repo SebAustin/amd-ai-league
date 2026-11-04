@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from amdleague.common.deadline import Deadline
-from amdleague.m4.answer import LLM, NO_ANSWER, Answer, choose_answer
+from amdleague.m4.answer import LLM, MIN_CONFIDENCE, NO_ANSWER, Answer, choose_answer
 from amdleague.m4.fetch import CorpusFetcher, Fetcher, HttpFetcher
 from amdleague.m4.html_text import Page, parse_page
 from amdleague.m4.navigate import Renderer, crawl
@@ -52,6 +52,7 @@ def answer_request(
     deadline: Deadline,
     fetcher: Fetcher | None = None,
     renderer: Renderer | None = None,
+    min_confidence: float = MIN_CONFIDENCE,
 ) -> Answer:
     reserve = LLM_RESERVE_SECONDS if llm is not None else RULES_RESERVE_SECONDS
     gather_deadline = deadline.child(max(deadline.remaining() - reserve,
@@ -61,4 +62,4 @@ def answer_request(
         log.warning("no pages read for request %s", req.id)
         return NO_ANSWER
     passages = rank_passages(req.question, pages, k=RANK_K)
-    return choose_answer(req.question, passages, llm, deadline)
+    return choose_answer(req.question, passages, llm, deadline, min_confidence)
