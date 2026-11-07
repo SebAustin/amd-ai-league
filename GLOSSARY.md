@@ -39,8 +39,20 @@ One Match 4 test case: a natural-language question plus a starting website (live
 _Avoid_: query, task, prompt
 
 **Answer**
-The single specific value an agent returns for a Request — not a summary or list of links.
+The single specific value returned for a Request or Question — not a summary or list of links. A qualifier that identifies the value is part of it (`Q3 FY27`, not `Q3`).
+
+**Question**
+One Match 3 test case: a natural-language question, identified by the id the Harness assigns, answered from a Corpus.
+_Avoid_: query (only the CLI flag `--query` uses it), Request (that is Match 4)
+
+**Corpus**
+The folder of mixed documents (pdf, docx, xlsx, csv, txt/log, py, png/jpg) a Match 3 Image is given at `/app/corpus` and indexes once before any Question.
+_Avoid_: dataset, knowledge base
 
 **Citation**
-The page (URL, or path inside a saved copy) the Answer was taken from.
+A page (URL, or path inside a saved copy) or Corpus file the Answer was taken from. In Match 3 the Citations of an Answer are graded as an exact set: a file is cited only if the Answer is impossible without it.
 _Avoid_: source, reference
+
+**Refusal**
+An empty Answer together with an empty list of Citations — the correct response when the Answer cannot be read from the material given (including from a file that cannot be opened).
+_Avoid_: abstain, "I don't know" (prose is graded as a wrong Answer)

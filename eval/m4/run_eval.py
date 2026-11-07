@@ -91,11 +91,11 @@ def main() -> int:
     contains = sum(r["contains"] for r in results)
     answerable = [r for r in results if r["expected"]]
     unanswerable = [r for r in results if not r["expected"]]
-    abstained = sum(1 for r in answerable if not r["answer"])
+    refused = sum(1 for r in answerable if not r["answer"])
     print(f"\nscore {exact}/{len(results)} ({exact / n:.0%})  contains {contains}/{len(results)}  "
           f"max {max((r['seconds'] for r in results), default=0)}s")
     print(f"answerable {sum(r['exact'] for r in answerable)}/{len(answerable)} "
-          f"(abstained on {abstained})  unanswerable "
+          f"(refused {refused})  unanswerable "
           f"{sum(r['exact'] for r in unanswerable)}/{len(unanswerable)} correctly empty")
     out = HERE / "results"
     out.mkdir(exist_ok=True)

@@ -85,8 +85,13 @@ class ModelClient:
             time.sleep(_POLL_SECONDS)
         return True
 
+    def wait_ready(self, timeout: float) -> bool:
+        """Start the server if needed and wait until it serves; False if it failed or timed out."""
+        self.ensure_started()
+        return timeout > 0 and self._wait_for_socket(timeout)
+
     def complete(
-        self, messages: list[dict[str, str]], max_new_tokens: int, timeout: float
+        self, messages: list[dict[str, Any]], max_new_tokens: int, timeout: float
     ) -> str | None:
         start = time.monotonic()
         self.ensure_started()

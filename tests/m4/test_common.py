@@ -53,3 +53,24 @@ def test_model_client_round_trip():
     client = ModelClient(sock_path, autostart=False)
     assert client.complete([{"role": "user", "content": "hi"}], 8, timeout=2) == "echo:hi"
     server.close()
+
+
+def test_vision_model_detection_and_message_parts(tmp_path):
+    from amdleague.common.model_server import as_parts, is_vision_model
+
+    assert not is_vision_model(tmp_path)
+    (tmp_path / "preprocessor_config.json").write_text("{}")
+    assert is_vision_model(tmp_path)
+    parts = as_parts([{"role": "system", "content": "hi"},
+                      {"role": "user", "content": [{"type": "image", "path": "/x.png"}]}])
+    assert parts[0]["content"] == [{"type": "text", "text": "hi"}]
+    assert parts[1]["content"][0]["type"] == "image"
+
+
+def test_wait_ready_gives_up_when_loading_failed(tmp_path):
+    from amdleague.common.model_client import ModelClient
+
+    sock = tmp_path / "m.sock"
+    sock.with_suffix(".failed").write_text("load failed")
+    assert ModelClient(sock).wait_ready(5) is False
+    assert ModelClient(sock, autostart=False).wait_ready(0) is False

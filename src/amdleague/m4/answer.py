@@ -27,7 +27,7 @@ KEYWORD_WINDOW = 25
 BEST_GUESS_CHARS = 200
 GROUNDED_CONFIDENCE = 0.8
 UNGROUNDED_CONFIDENCE = 0.45  # value not found in any passage: likely made up
-MIN_CONFIDENCE = 0.5  # below this we abstain (empty answer)
+MIN_CONFIDENCE = 0.5  # below this we return a Refusal (empty answer, no citations)
 LLM_DISSENT_PENALTY = 0.25  # the model read the passages and said the answer is not there
 UNCUED_NUMBER_CONFIDENCE = 0.4  # any number matches a "how many" question: need its noun nearby
 COUNTED_NOUN_WINDOW = 40
@@ -269,9 +269,9 @@ def best_guess(passages: list[Passage]) -> Answer:
 def _gate(answer: Answer, min_confidence: float) -> Answer:
     if answer.value and answer.confidence >= min_confidence:
         return answer
-    log.info("abstaining: %r at confidence %.2f (%s)", answer.value, answer.confidence,
+    log.info("refusing: %r at confidence %.2f (%s)", answer.value, answer.confidence,
              answer.method)
-    return Answer("", (), answer.confidence, "abstain")
+    return Answer("", (), answer.confidence, "refusal")
 
 
 def choose_answer(

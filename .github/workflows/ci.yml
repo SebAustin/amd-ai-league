@@ -43,3 +43,7 @@ jobs:
         with:
           dockerfile: matches/m4/Dockerfile
           failure-threshold: error
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: matches/m3/Dockerfile
+          failure-threshold: error

@@ -1,7 +1,9 @@
 """Resident model server: loads the LLM once on the AMD GPU and answers over a Unix socket.
 
 Protocol: one JSON line in ``{"messages": [...], "max_new_tokens": n}``,
-one JSON line out ``{"text": "..."}``. Started by the container entrypoint, or lazily by
+one JSON line out ``{"text": "..."}``. With a vision-language model (the model folder has a
+``preprocessor_config.json``) a message's content may be a list of parts:
+``[{"type": "image", "path": "/abs/file.png"}, {"type": "text", "text": "..."}]``. Started by the container entrypoint, or lazily by
 ``ModelClient.ensure_started``. Readiness is signalled by atomically renaming the socket into
 place, so clients never connect to a half-initialised server.
 """
@@ -17,33 +19,63 @@ from typing import Any
 
 log = logging.getLogger("model_server")
 
-MODEL_DIR = Path(os.environ.get("M4_MODEL_DIR", "/models/llm"))
+MODEL_DIR = Path(os.environ.get("AMDLEAGUE_MODEL_DIR") or os.environ.get("M4_MODEL_DIR")
+                 or "/models/llm")
 SOCKET_PATH = Path(os.environ.get("M4_MODEL_SOCKET", "/tmp/amdleague-model.sock"))
-MAX_NEW_TOKENS_CAP = 256
+MAX_NEW_TOKENS_CAP = int(os.environ.get("AMDLEAGUE_MAX_NEW_TOKENS", "1024"))
 CONN_TIMEOUT_SECONDS = 60.0
+
+
+def is_vision_model(model_dir: Path) -> bool:
+    return (model_dir / "preprocessor_config.json").exists()
+
+
+def as_parts(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Vision processors want every content as a list of typed parts."""
+    out = []
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        out.append({**message, "content": content})
+    return out
 
 
 def _load():  # pragma: no cover - needs a GPU
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     if not torch.cuda.is_available():
         raise RuntimeError("no GPU visible to torch; refusing to serve on CPU")
     log.info("torch %s hip=%s device=%s", torch.__version__, torch.version.hip,
              torch.cuda.get_device_name(0))
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_DIR, torch_dtype=torch.bfloat16, device_map="cuda"
-    )
+    if is_vision_model(MODEL_DIR):
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        processor = AutoProcessor.from_pretrained(MODEL_DIR)
+        model = AutoModelForImageTextToText.from_pretrained(
+            MODEL_DIR, torch_dtype=torch.bfloat16, device_map="cuda")
+    else:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        processor = AutoTokenizer.from_pretrained(MODEL_DIR)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_DIR, torch_dtype=torch.bfloat16, device_map="cuda")
     model.eval()
-    return torch, tokenizer, model
+    return torch, processor, model
 
 
-def _generate(torch, tokenizer, model, messages: list[dict[str, str]], max_new_tokens: int) -> str:
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True, tokenize=False, enable_thinking=False
-    )
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+def _generate(torch, processor, model, messages: list[dict[str, Any]],
+              max_new_tokens: int) -> str:  # pragma: no cover - needs a GPU
+    if is_vision_model(MODEL_DIR):
+        inputs = processor.apply_chat_template(
+            as_parts(messages), tokenize=True, add_generation_prompt=True, return_dict=True,
+            return_tensors="pt").to(model.device)
+        tokenizer = processor.tokenizer
+    else:
+        prompt = processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False, enable_thinking=False)
+        inputs = processor(prompt, return_tensors="pt").to(model.device)
+        tokenizer = processor
     with torch.inference_mode():
         out = model.generate(
             **inputs,

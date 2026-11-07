@@ -21,19 +21,18 @@ WORKDIR /app
 # pip can silently replace the base image's ROCm torch with a CUDA/CPU wheel when a dependency
 # asks for torch. Pin the exact installed torch with a constraints file and verify after every
 # install step that torch is still the ROCm build.
-RUN python3 -c "from importlib.metadata import version; print('torch==' + version('torch'))" \
-      > /etc/pip-torch-constraint.txt \
- && cat /etc/pip-torch-constraint.txt
+COPY matches/common/rocm_guard.py /usr/local/bin/rocm_guard.py
+RUN python3 /usr/local/bin/rocm_guard.py --pin > /etc/pip-torch-constraint.txt \
+ && cat /etc/pip-torch-constraint.txt \
+ && python3 /usr/local/bin/rocm_guard.py
 ENV PIP_CONSTRAINT=/etc/pip-torch-constraint.txt
-COPY matches/m4/check_rocm_torch.py /usr/local/bin/check_rocm_torch.py
-RUN python3 /usr/local/bin/check_rocm_torch.py
 
 COPY matches/m4/requirements.txt /app/requirements.txt
-RUN python3 -m pip install -r /app/requirements.txt && python3 /usr/local/bin/check_rocm_torch.py
+RUN python3 -m pip install -r /app/requirements.txt && python3 /usr/local/bin/rocm_guard.py
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN python3 -m pip install --no-deps . && python3 /usr/local/bin/check_rocm_torch.py
+RUN python3 -m pip install --no-deps . && python3 /usr/local/bin/rocm_guard.py
 
 # Bake the weights into the image: no downloads at container start.
 RUN HF_HUB_OFFLINE=0 python3 -c "from huggingface_hub import snapshot_download; \
@@ -42,7 +41,7 @@ allow_patterns=['*.json', '*.safetensors', '*.txt', '*.model', 'tokenizer*'])"
 
 # Optional headless Chromium for JavaScript-built pages. The agent works without it.
 RUN if [ "$WITH_BROWSER" = "1" ]; then \
-      python3 -m pip install "playwright>=1.45" && python3 /usr/local/bin/check_rocm_torch.py && \
+      python3 -m pip install "playwright>=1.45" && python3 /usr/local/bin/rocm_guard.py && \
       (python3 -m playwright install --with-deps chromium || \
        echo "WARNING: Chromium install failed; JS rendering disabled"); \
     fi

@@ -1,0 +1,11 @@
+# Runtime deps for the Match 3 image. torch and PIL come from the mandated ROCm base image;
+# torch is pinned by a constraints file at build time so pip can never swap it for CUDA/CPU.
+httpx>=0.27
+beautifulsoup4>=4.12
+lxml>=5.0
+pypdf>=4.0
+python-docx>=1.1
+openpyxl>=3.1
+transformers>=4.57
+accelerate>=1.0
+huggingface_hub>=0.25

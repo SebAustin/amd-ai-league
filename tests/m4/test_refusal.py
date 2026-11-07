@@ -21,12 +21,12 @@ class _LLM:
         return self.reply
 
 
-def test_low_confidence_guess_abstains_by_default(site_dir):
+def test_low_confidence_guess_is_refused_by_default(site_dir):
     req = Request(id="t", question="Who founded Acme Tools?", url=None, corpus=site_dir)
     ans = answer_request(req, llm=None, deadline=Deadline(10))
     assert ans.value == ""
     assert ans.citations == ()
-    assert ans.method == "abstain"
+    assert ans.method == "refusal"
     assert ans.confidence < MIN_CONFIDENCE
 
 
@@ -43,7 +43,7 @@ def test_confident_rule_answer_is_still_given():
     assert ans.value == "hi@acme.example"
 
 
-def test_ungrounded_llm_value_alone_abstains():
+def test_ungrounded_llm_value_alone_is_refused():
     passages = [Passage("Acme sells drills and saws.", "u", "Home", 1.0)]
     ans = choose_answer("Who is the CEO of Acme?", passages,
                         _LLM('{"answer": "John Smith", "passage": 1}'), Deadline(5))
@@ -86,7 +86,7 @@ def test_cli_threshold_from_env(site_dir, tmp_path, monkeypatch, env, expect_emp
     assert isinstance(data["citations"], list)
 
 
-def test_bare_number_without_cue_abstains():
+def test_bare_number_without_cue_is_refused():
     passages = [Passage("Tipping the Velvet £53.74 In stock Add to basket", "u", "Velvet", 1.0)]
     ans = choose_answer("How many pages does Tipping the Velvet have?", passages, None, Deadline(5))
     assert ans.value == ""
