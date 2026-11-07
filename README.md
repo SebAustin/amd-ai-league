@@ -1,14 +1,45 @@
 # AMD AI League entries
 
-Two Match entries sharing one codebase (`src/amdleague/common` holds the resident GPU model
+Three Match entries sharing one codebase (`src/amdleague/common` holds the resident GPU model
 server, deadlines and atomic output). Inference runs locally on an AMD GPU through ROCm — no API
 keys, weights baked into each image. Vocabulary: [GLOSSARY.md](GLOSSARY.md); decisions:
 [docs/adr](docs/adr).
 
 | Match | Code | Image |
 |---|---|---|
+| 2 · Optical Character Recognition | `src/amdleague/m2`, `matches/m2` | `amd-ai-league:m2-v1` |
 | 3 · Retrieval-Augmented Generation | `src/amdleague/m3`, `matches/m3` | `amd-ai-league:m3-v1` |
 | 4 · Intelligent Web Information Retrieval | `src/amdleague/m4`, `matches/m4` | `amd-ai-league:m4-v1` |
+
+# Match 2: Optical Character Recognition
+
+Reads the text on one image: US and Chinese licence plates, stop, speed-limit, advisory and
+work-zone signs, under blur, noise, glare and low light.
+`python3 /app/app.py --input-image /app/input/image_01.png` writes
+`/app/output/image_01_output.json` = `{"text": "7ABC123", "confidence": 0.95}`.
+
+```
+image (PNG/JPEG/TIFF, any size, EXIF rotation) ─► upright RGB ─► two views on ONE 1024×1024 canvas
+   (original + contrast-boosted) ─► Qwen3-VL-8B: {"kind": plate|sign, "lines": [...]}
+   ─► League convention in code: plate = lines with digits (+ "JHT" beside "2951"), so banners and
+      slogans drop out and 京A·12345 stays whole; sign = all lines joined top to bottom
+   ─► both views agree: 0.95 · disagree: original wins, 0.6
+```
+
+* **One canvas size**: the GPU compiles kernels once per input shape (~15–25 s each on a Radeon
+  PRO). Letterboxing every image onto 1024×1024 and warming the server up on that exact size at
+  boot keeps every graded image at ~4 s.
+* **Contract**: an empty answer is written before any work and replaced atomically; never a
+  traceback; 25 s budget per image.
+
+Brief samples (`python eval/m2/fetch_samples.py`, then `python eval/m2/run_eval.py --llm`):
+
+| Configuration | Score | Time per image |
+|---|---|---|
+| Qwen3-VL-8B (AMD Radeon PRO notebook, fresh server) | **200/200** | 3.9–4.8 s |
+
+The graded images are different and harder (adverse conditions); the samples only fix the
+transcription convention.
 
 # Match 3: Retrieval-Augmented Generation
 
@@ -115,7 +146,7 @@ them next to the GPU (`--llm --replay m4pages`, see `eval/m4/gpu_notebook_run.sh
 
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
-.venv/bin/pytest --cov            # 165 tests, ~89% coverage
+.venv/bin/pytest --cov            # 191 tests, ~89% coverage
 .venv/bin/ruff check src tests eval
 ```
 

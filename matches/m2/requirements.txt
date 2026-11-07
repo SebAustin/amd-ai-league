@@ -1,0 +1,5 @@
+# Runtime deps for the Match 2 image. torch and PIL come from the mandated ROCm base image;
+# torch is pinned by a constraints file at build time so pip can never swap it for CUDA/CPU.
+transformers>=4.57
+accelerate>=1.0
+huggingface_hub>=0.25

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import socket
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,11 @@ MODEL_DIR = Path(os.environ.get("AMDLEAGUE_MODEL_DIR") or os.environ.get("M4_MOD
 SOCKET_PATH = Path(os.environ.get("M4_MODEL_SOCKET", "/tmp/amdleague-model.sock"))
 MAX_NEW_TOKENS_CAP = int(os.environ.get("AMDLEAGUE_MAX_NEW_TOKENS", "1024"))
 CONN_TIMEOUT_SECONDS = 60.0
+# GPU kernels are compiled once per input shape (~15-25 s each on a Radeon PRO). Match 2 sends
+# every image on one fixed canvas (amdleague.m2.images.CANVAS), so warming up on that exact
+# size moves the one compilation from the first graded image to server start.
+WARMUP_IMAGE_SIDE = 1024
+WARMUP_NEW_TOKENS = 8
 
 
 def is_vision_model(model_dir: Path) -> bool:
@@ -39,6 +45,24 @@ def as_parts(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             content = [{"type": "text", "text": content}]
         out.append({**message, "content": content})
     return out
+
+
+def warmup_messages(vision: bool, scratch: Path) -> list[list[dict[str, Any]]]:
+    """Run once before serving: a text prompt, plus a canvas-sized image for a vision model."""
+    batches: list[list[dict[str, Any]]] = [[{"role": "user", "content": "Say OK."}]]
+    if vision:
+        from PIL import Image, ImageDraw
+
+        scratch.mkdir(parents=True, exist_ok=True)
+        path = scratch / "amdleague-warmup.png"
+        img = Image.new("RGB", (WARMUP_IMAGE_SIDE, WARMUP_IMAGE_SIDE), (114, 114, 114))
+        ImageDraw.Draw(img).text((WARMUP_IMAGE_SIDE // 3, WARMUP_IMAGE_SIDE // 2), "ABC 123",
+                                 fill="black")
+        img.save(path)
+        batches.append([{"role": "user", "content": [
+            {"type": "image", "path": str(path)},
+            {"type": "text", "text": "What does it say?"}]}])
+    return batches
 
 
 def _load():  # pragma: no cover - needs a GPU
@@ -112,7 +136,9 @@ def main() -> None:  # pragma: no cover - needs a GPU
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
         engine = _load()
-        _generate(*engine, [{"role": "user", "content": "Say OK."}], 4)  # warm-up kernels
+        vision = is_vision_model(MODEL_DIR)
+        for messages in warmup_messages(vision, Path(tempfile.gettempdir())):
+            _generate(*engine, messages, WARMUP_NEW_TOKENS)  # compile kernels before serving
     except Exception:
         # Mark the failure so clients stop waiting and stop respawning; they use rules instead.
         SOCKET_PATH.with_suffix(".failed").write_text("load failed\n")
