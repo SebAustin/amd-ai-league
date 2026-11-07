@@ -37,7 +37,7 @@ Sample kit (`sh eval/m3/fetch_kit.sh`, then `python eval/m3/run_eval.py [--llm]`
 | Configuration | Score |
 |---|---|
 | Rules only (no GPU — images unread, no multi-hop) | 40/200 |
-| With Qwen3-VL-8B on MI300X | _pending GPU run_ |
+| With Qwen3-VL-8B (AMD Radeon PRO, ROCm 7.2 notebook; 1.5–2.4 s per Question) | **200/200** |
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -110,7 +110,7 @@ Run it: `python eval/m4/run_eval.py` (add `--llm` inside the container).
 
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
-.venv/bin/pytest --cov            # 141 tests, ~89% coverage
+.venv/bin/pytest --cov            # 164 tests, ~89% coverage
 .venv/bin/ruff check src tests eval
 ```
 

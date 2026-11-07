@@ -2,8 +2,9 @@
 
 1. Retrieve passages (BM25, superseded files ranked down) and show them to the model, each
    labelled with its file.
-2. The model answers, or asks for ONE lookup of an identifier it saw (a ticket id in a log) —
-   the second hop of a two-file chain.
+2. Identifiers named in those passages (a ticket id in a log) are looked up up front, and their
+   records are shown with the first call — the second hop of a two-file chain. The model can
+   still ask for ONE further lookup of an identifier it saw.
 3. Citations are then decided by the code, not trusted from the model: a file is kept only if
    it contains the Answer, or it is the link of the chain that supplied the identifier leading
    to it. A value found in no readable file is a Refusal (recalled, hallucinated, or read from a
@@ -36,8 +37,12 @@ MIN_LLM_SECONDS = 2.0
 CITED_CONFIDENCE = 0.9
 UNCITED_CONFIDENCE = 0.7
 MAX_CITATIONS = 3
+MAX_PREFETCH = 4  # records fetched up front for identifiers in the first hop
 _IDENTIFIER = re.compile(r"\b(?=[A-Z0-9_-]*\d)(?=[A-Z0-9_-]*[A-Z])[A-Z0-9]+(?:[-_][A-Z0-9]+)+\b|"
                          r"\b[A-Z]{1,4}\d{3,}\b")
+# Only these start a chain: tickets and error codes carry long numbers (ORR-1847, E7731);
+# product and revision names (TQ-40, REV-C2) do not, and are mentioned everywhere.
+_CHAIN_NUMBER = re.compile(r"\d{3,}")
 
 SYSTEM_PROMPT = (
     "You answer questions about a private document collection using ONLY the numbered passages "
@@ -47,8 +52,11 @@ SYSTEM_PROMPT = (
     "The value only — a number, part number, version, quarter or code — complete with its "
     "qualifier (\"Q3 FY27\", not \"Q3\"; \"REV-C2\", not \"C2\"), no sentence, no unit words. "
     "List only the files without which the answer would be impossible.\n"
-    "- If a passage names an identifier (ticket, error code, part number) whose details you "
-    'need but cannot see: {"lookup": "<identifier>"}.\n'
+    "- Follow identifiers: when the passage matching the question names a ticket, error code "
+    "or part number, the answer is in that identifier's own record (passages marked \"record "
+    "for <id>\"), which outranks a similar-sounding description elsewhere.\n"
+    "- If a passage names an identifier whose details you need but cannot see: "
+    '{"lookup": "<identifier>"}.\n'
     '- Otherwise: {"answer": "", "files": []}. Do not guess. A withdrawn or superseded '
     "document is not the answer unless the question asks about it."
 )
@@ -116,8 +124,15 @@ def grounded(answer: str, text: str) -> bool:
     return len(key) >= 5 and any(c.isalpha() for c in key) and key in squash(text)
 
 
-def _messages(question: str, passages: list[Passage], extra: str = "") -> list[dict[str, str]]:
-    body = "\n\n".join(f"[{i}] file: {p.url}\n{p.text[:PASSAGE_CHARS]}"
+def _messages(question: str, passages: list[Passage], extra: str = "",
+              records: dict[tuple[str, str], str] | None = None) -> list[dict[str, str]]:
+    records = records or {}
+
+    def label(p: Passage) -> str:
+        ident = records.get((p.url, p.text))
+        return f"file: {p.url} (record for {ident})" if ident else f"file: {p.url}"
+
+    body = "\n\n".join(f"[{i}] {label(p)}\n{p.text[:PASSAGE_CHARS]}"
                        for i, p in enumerate(passages, start=1))
     user = f"Question: {question}\n\nPassages:\n{body}{extra}"
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
@@ -145,6 +160,10 @@ def _ask(llm: LLM, messages: list[dict[str, str]], deadline: Deadline) -> dict |
 
 def _identifiers(text: str) -> set[str]:
     return set(_IDENTIFIER.findall(text))
+
+
+def _chain_identifiers(text: str) -> set[str]:
+    return {i for i in _identifiers(text) if _CHAIN_NUMBER.search(i)}
 
 
 def _clean_path(raw: object) -> str:
@@ -191,11 +210,41 @@ def _cite(question: str, answer: str, claimed: list[str], first_hop: list[Passag
     return tuple(cited[:MAX_CITATIONS])
 
 
+def _prefetch(question: str, docs: tuple[Document, ...],
+              shown: list[Passage]) -> list[tuple[Passage, str]]:
+    """For each identifier a first-hop passage names but the question does not, its record in
+    another file — taken from the first hop when already there, else fetched — in first-hop
+    order, at most MAX_PREFETCH records."""
+    asked = _identifiers(question)
+    old = set() if asks_old(question) else superseded_paths(docs)  # a revision is no chain
+    tagged: set[tuple[str, str]] = set()
+    records: list[tuple[Passage, str]] = []
+    for passage in (p for p in shown if p.url not in old):
+        for ident in sorted(_chain_identifiers(passage.text) - asked, key=passage.text.index):
+            def is_record(h: Passage, ident: str = ident, src: str = passage.url) -> bool:
+                return (h.url != src and h.url not in old and ident in h.text
+                        and (h.url, h.text) not in tagged)
+
+            hit = next((h for h in shown if is_record(h)), None) or next(
+                (h for h in retrieve(ident, docs, k=LOOKUP_K) if is_record(h)), None)
+            if hit is None:
+                continue
+            tagged.add((hit.url, hit.text))
+            records.append((hit, ident))
+            if len(records) >= MAX_PREFETCH:
+                return records
+    return records
+
+
 def _llm_answer(question: str, docs: tuple[Document, ...], llm: LLM, deadline: Deadline,
                 shown: list[Passage]) -> Result | None:
     """A Result, REFUSAL when the model declines, or None when the model could not be used."""
     first_hop = shown
-    reply = _ask(llm, _messages(question, shown), deadline)
+    fetched = _prefetch(question, docs, shown)
+    records = {(p.url, p.text): ident for p, ident in fetched}
+    in_first_hop = {(p.url, p.text) for p in shown}
+    shown = shown + [p for p, _ in fetched if (p.url, p.text) not in in_first_hop]
+    reply = _ask(llm, _messages(question, shown, records=records), deadline)
     if reply is None:
         return None
     lookup = None
@@ -204,7 +253,7 @@ def _llm_answer(question: str, docs: tuple[Document, ...], llm: LLM, deadline: D
         found = [p for p in retrieve(lookup, docs, k=LOOKUP_K) if lookup in p.text] if lookup else []
         seen = {(p.url, p.text) for p in shown}
         shown = shown + [p for p in found if (p.url, p.text) not in seen]
-        reply = _ask(llm, _messages(question, shown, NO_MORE_LOOKUPS), deadline)
+        reply = _ask(llm, _messages(question, shown, NO_MORE_LOOKUPS, records), deadline)
         if reply is None or "answer" not in reply:
             return REFUSAL
     answer = reply.get("answer")
@@ -216,6 +265,9 @@ def _llm_answer(question: str, docs: tuple[Document, ...], llm: LLM, deadline: D
     files = reply.get("files") if isinstance(reply.get("files"), list) else []
     claimed = [_clean_path(f) for f in files]
     by_path = {d.path: d for d in docs}
+    if lookup is None:  # value read from a prefetched record: its identifier was the hop
+        lookup = next((ident for (url, text), ident in records.items()
+                       if grounded(answer, text)), None)
     citations = _cite(question, answer, claimed, first_hop, shown, by_path, lookup)
     if not citations:
         log.info("refusing %r: found in no readable file", answer)
