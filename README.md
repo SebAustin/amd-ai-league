@@ -99,18 +99,23 @@ only when the answer is empty.
 |---|---|---|---|---|
 | Rules only, always answer (ADR 0001) | 28/38 (74%) | 28/30 | 0/8 | < 3 s |
 | Rules only, refuse < 0.5 (ADR 0002) | 36/38 (95%) | 28/30 | 8/8 | < 3 s |
-| With Qwen3-8B on MI300X | _pending GPU run_ | | | |
+| With Qwen3-8B (AMD Radeon PRO notebook, recorded pages) | 36/38 (95%) | 28/30 | 8/8 | ~2 s* |
 
 The unanswerable cases were written alongside the threshold, so expect some optimism on unseen
 questions; add fresh cases before re-tuning.
 
-Run it: `python eval/m4/run_eval.py` (add `--llm` inside the container).
+\* After the model is loaded; the container loads it at boot. The eval harness starts it lazily, so
+its first Question also waits ~17 s for the load.
+
+Run it: `python eval/m4/run_eval.py` (add `--llm` inside the container). GPU notebooks cannot
+reach the eval websites: record the pages where there is internet (`--record m4pages`) and replay
+them next to the GPU (`--llm --replay m4pages`, see `eval/m4/gpu_notebook_run.sh`).
 
 ## Develop
 
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
-.venv/bin/pytest --cov            # 164 tests, ~89% coverage
+.venv/bin/pytest --cov            # 165 tests, ~89% coverage
 .venv/bin/ruff check src tests eval
 ```
 

@@ -4,6 +4,8 @@ Usage:
     python eval/m4/run_eval.py                 # rules only (no GPU)
     python eval/m4/run_eval.py --llm           # use the resident model server
     python eval/m4/run_eval.py --only quotes   # ids containing "quotes"
+    python eval/m4/run_eval.py --record pages  # save every fetched page (needs internet)
+    python eval/m4/run_eval.py --llm --replay pages   # same pages, offline (GPU notebook)
 
 Grading follows the League: answers are compared after uppercasing and removing whitespace and
 ``- . · _``; a case with ``"expected": []`` is unanswerable and only an empty answer scores.
@@ -24,7 +26,11 @@ from amdleague.common.deadline import Deadline
 from amdleague.common.model_client import ModelClient
 from amdleague.m4.agent import answer_request
 from amdleague.m4.answer import MIN_CONFIDENCE
+from amdleague.m4.fetch import Fetcher, HttpFetcher
 from amdleague.m4.request import make_request
+
+sys.path.insert(0, str(Path(__file__).parent))
+from page_cache import RecordingFetcher, ReplayFetcher
 
 HERE = Path(__file__).parent
 
@@ -54,11 +60,20 @@ def grade(answer: str, expected: list[str]) -> tuple[bool, bool]:
     return exact, contains
 
 
-def run_case(case: dict, llm: ModelClient | None, budget: float, min_conf: float) -> dict:
+def make_fetcher(record: str, replay: str) -> Fetcher | None:
+    if replay:
+        return ReplayFetcher(Path(replay))
+    if record:
+        return RecordingFetcher(HttpFetcher(), Path(record))
+    return None  # the agent's own live fetcher
+
+
+def run_case(case: dict, llm: ModelClient | None, budget: float, min_conf: float,
+             fetcher: Fetcher | None = None) -> dict:
     req = make_request(case["question"], case.get("url"), case.get("corpus"), case["id"],
                        base_dir=HERE)
     start = time.monotonic()
-    ans = answer_request(req, llm, Deadline(budget), min_confidence=min_conf)
+    ans = answer_request(req, llm, Deadline(budget), fetcher=fetcher, min_confidence=min_conf)
     exact, contains = grade(ans.value, case["expected"])
     return {"id": case["id"], "answer": ans.value, "expected": case["expected"],
             "citations": list(ans.citations), "method": ans.method,
@@ -73,6 +88,8 @@ def main() -> int:
     ap.add_argument("--budget", type=float, default=25.0)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--min-confidence", type=float, default=MIN_CONFIDENCE)
+    ap.add_argument("--record", default="", help="save every fetched page into this folder")
+    ap.add_argument("--replay", default="", help="serve pages only from a --record folder")
     args = ap.parse_args()
     cases = [json.loads(line) for line in (HERE / "requests.jsonl").read_text().splitlines()
              if line.strip()]
@@ -80,7 +97,9 @@ def main() -> int:
     llm = ModelClient() if args.llm else None
     workers = 1 if args.llm else args.workers  # one GPU server: keep calls sequential
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda c: run_case(c, llm, args.budget, args.min_confidence), cases))
+        results = list(pool.map(lambda c: run_case(c, llm, args.budget, args.min_confidence,
+                                                   make_fetcher(args.record, args.replay)),
+                                cases))
     for r in results:
         mark = "OK " if r["exact"] else ("~  " if r["contains"] else "XX ")
         want = r["expected"][0] if r["expected"] else "<empty>"
